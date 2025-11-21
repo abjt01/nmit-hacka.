@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HydraHacks - Quant Problem Validator</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <!-- Load components -->
+    <script type="text/babel" src="js/utils/api.js"></script>
+    <script type="text/babel" src="js/components/ThemeToggle.js"></script>
+    <script type="text/babel" src="js/components/Header.js"></script>
+    <script type="text/babel" src="js/components/AgentStatus.js"></script>
+    <script type="text/babel" src="js/components/ProblemViewer.js"></script>
+    <script type="text/babel" src="js/components/StatsPanel.js"></script>
+    <script type="text/babel" src="js/app.js"></script>
+</body>
+</html>
