@@ -5,48 +5,65 @@ const StatsPanel = ({ stats }) => {
   
   return (
     <div>
-      <h2 style={{ marginBottom: 'var(--space-lg)' }}>Performance Statistics</h2>
+      <h2 style={{ marginBottom: 'var(--space-lg)' }}>📊 Generation Statistics</h2>
       
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{stats.total_generated || 0}</div>
-          <div className="stat-label">Generated</div>
+          <div className="stat-label">Problems Generated</div>
         </div>
         
         <div className="stat-card">
-          <div className="stat-value">{stats.total_valid || 0}</div>
-          <div className="stat-label">Valid</div>
+          <div className="stat-value">{stats.total_api_calls || 0}</div>
+          <div className="stat-label">API Calls Used</div>
+        </div>
+        
+        <div className="stat-card">
+          <div className="stat-value">{stats.api_efficiency || 'N/A'}</div>
+          <div className="stat-label">Efficiency Ratio</div>
         </div>
         
         <div className="stat-card">
           <div className="stat-value">
-            {((stats.solver_agreement_rate || 0) * 100).toFixed(0)}%
+            {stats.solver_agreement_rate 
+              ? (stats.solver_agreement_rate * 100).toFixed(0) + '%'
+              : 'N/A'}
           </div>
           <div className="stat-label">Solver Agreement</div>
         </div>
         
         <div className="stat-card">
-          <div className="stat-value">
-            {((stats.ground_truth_accuracy || 0) * 100).toFixed(0)}%
-          </div>
-          <div className="stat-label">Ground Truth Accuracy</div>
+          <div className="stat-value">{stats.ground_truth_matches || 0}</div>
+          <div className="stat-label">SymPy Verified</div>
         </div>
       </div>
       
-      {stats.error_breakdown && Object.keys(stats.error_breakdown).length > 0 && (
-        <div className="chart-container">
-          <h3 style={{ marginBottom: 'var(--space-md)' }}>Error Breakdown</h3>
+      {stats.validation_failures && Object.keys(stats.validation_failures).length > 0 && (
+        <div className="chart-container" style={{ marginTop: 'var(--space-lg)' }}>
+          <h3 style={{ marginBottom: 'var(--space-md)' }}>🔍 Validation Analysis</h3>
           <div style={{ display: 'grid', gap: 'var(--space-sm)' }}>
-            {Object.entries(stats.error_breakdown).map(([error, count]) => (
+            {Object.entries(stats.validation_failures).map(([error, count]) => (
               <div key={error} style={{ 
                 display: 'flex', 
                 justifyContent: 'space-between',
-                padding: 'var(--space-sm)',
+                alignItems: 'center',
+                padding: 'var(--space-md)',
                 background: 'var(--bg-primary)',
-                borderRadius: 'var(--radius-sm)'
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-color)'
               }}>
-                <span>{error.replace(/_/g, ' ')}</span>
-                <strong>{count}</strong>
+                <span style={{ textTransform: 'capitalize' }}>
+                  {error.replace(/_/g, ' ')}
+                </span>
+                <strong style={{ 
+                  padding: '4px 12px',
+                  background: 'var(--warning)',
+                  color: 'white',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.9rem'
+                }}>
+                  {count}
+                </strong>
               </div>
             ))}
           </div>

@@ -4,6 +4,7 @@ const App = () => {
   const [stats, setStats] = React.useState(null);
   const [numProblems, setNumProblems] = React.useState(12);
   const [category, setCategory] = React.useState("Mixed (All Categories)");
+  const [error, setError] = React.useState(null);
   
   const categories = [
     "Time, Speed & Distance",
@@ -21,8 +22,11 @@ const App = () => {
     setLoading(true);
     setProblems([]);
     setStats(null);
+    setError(null);
     
     try {
+      console.log('🚀 Sending request to backend...');
+      
       const response = await fetch('http://localhost:8000/api/generate', {
         method: 'POST',
         headers: {
@@ -34,19 +38,31 @@ const App = () => {
         })
       });
       
+      console.log('📡 Response status:', response.status);
+      
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Server error: ${errorText}`);
       }
       
       const result = await response.json();
-      console.log('Result:', result);
+      console.log('✅ Result received:', result);
+      console.log('📊 Problems count:', result.problems?.length);
       
-      setProblems(result.problems || []);
-      setStats(result.stats || {});
+      // FIXED: Ensure problems array is set correctly
+      if (result.problems && Array.isArray(result.problems)) {
+        setProblems(result.problems);
+        setStats(result.stats);
+        console.log('✓ Problems state updated:', result.problems.length, 'problems');
+      } else {
+        console.error('❌ Invalid response format:', result);
+        setError('Invalid response format from server');
+      }
+      
     } catch (error) {
-      console.error('Error:', error);
-      alert('Error generating problems: ' + error.message + '\n\nCheck:\n1. Backend running on port 8000\n2. GROQ_API_KEY in .env\n3. Browser console (F12) for details');
+      console.error('❌ Error:', error);
+      setError(error.message);
+      alert(`Error generating problems:\n\n${error.message}\n\nCheck:\n1. Backend running on port 8000\n2. GROQ_API_KEY in .env\n3. Browser console (F12) for details`);
     } finally {
       setLoading(false);
     }
@@ -72,10 +88,13 @@ const App = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'hydrahacks-quiz.html';
+      a.download = 'polysolve-ai-quiz.html';
       a.click();
       URL.revokeObjectURL(url);
+      
+      console.log('✅ Quiz exported successfully');
     } catch (error) {
+      console.error('❌ Export error:', error);
       alert('Error exporting: ' + error.message);
     }
   };
@@ -85,32 +104,35 @@ const App = () => {
       <Header />
       
       <div className="control-panel">
-        <h2 style={{ marginBottom: 'var(--space-lg)' }}>Generation Settings</h2>
+        <h2 style={{ marginBottom: 'var(--space-lg)' }}>⚙️ Generation Settings</h2>
         
-        <div className="form-group">
-          <label>Number of Problems (1-20)</label>
-          <input 
-            type="number" 
-            min="1" 
-            max="20" 
-            value={numProblems}
-            onChange={(e) => setNumProblems(e.target.value)}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 'var(--space-md)' }}>
+          <div className="form-group">
+            <label>Number of Problems</label>
+            <input 
+              type="number" 
+              min="1" 
+              max="20" 
+              value={numProblems}
+              onChange={(e) => setNumProblems(e.target.value)}
+              placeholder="1-20"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>Problem Category</label>
+            <select 
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
         </div>
         
-        <div className="form-group">
-          <label>Problem Category</label>
-          <select 
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {categories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: 'var(--space-lg)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: 'var(--space-lg)', flexWrap: 'wrap' }}>
           <button 
             className="btn btn-primary" 
             onClick={handleGenerate}
@@ -125,46 +147,52 @@ const App = () => {
             </button>
           )}
         </div>
+        
+        {error && (
+          <div style={{
+            marginTop: 'var(--space-md)',
+            padding: 'var(--space-md)',
+            background: 'var(--danger)',
+            color: 'white',
+            borderRadius: 'var(--radius-md)'
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
       </div>
       
       {loading && (
         <div className="loading">
           <div className="spinner"></div>
-          <p>Generating {numProblems} problems for: {category}</p>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '10px' }}>
-            This will use approximately {parseInt(numProblems) * 2 + 1} API calls
+          <p style={{ fontSize: '1.1rem', fontWeight: '600' }}>
+            Generating {numProblems} problems for: {category}
           </p>
+          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '10px' }}>
+            Multi-agent validation in progress...
+          </p>
+          <div style={{ marginTop: 'var(--space-md)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <div>✓ Research Agent analyzing patterns</div>
+            <div>✓ Generator creating problems</div>
+            <div>✓ Solver A validating (algebraic)</div>
+            <div>✓ Solver B validating (logical)</div>
+            <div>✓ SymPy verifying ground truth</div>
+          </div>
         </div>
       )}
       
-      {stats && (
-        <div style={{ 
-          background: 'var(--bg-secondary)', 
-          padding: 'var(--space-lg)', 
-          borderRadius: 'var(--radius-lg)',
-          marginBottom: 'var(--space-xl)'
+      {stats && <StatsPanel stats={stats} />}
+      
+      {problems.length > 0 && (
+        <div style={{
+          marginBottom: 'var(--space-lg)',
+          padding: 'var(--space-md)',
+          background: 'var(--success)',
+          color: 'white',
+          borderRadius: 'var(--radius-md)',
+          textAlign: 'center',
+          fontWeight: '600'
         }}>
-          <h3 style={{ marginBottom: 'var(--space-md)' }}>📊 Generation Stats</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-md)' }}>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--accent-primary)' }}>
-                {stats.total_generated || 0}
-              </div>
-              <div style={{ color: 'var(--text-secondary)' }}>Problems Generated</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: '700', color: 'var(--success)' }}>
-                {stats.total_api_calls || 0}
-              </div>
-              <div style={{ color: 'var(--text-secondary)' }}>Total API Calls</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '1.5rem', fontWeight: '700', color: 'var(--warning)' }}>
-                {stats.api_efficiency || 'N/A'}
-              </div>
-              <div style={{ color: 'var(--text-secondary)' }}>Efficiency</div>
-            </div>
-          </div>
+          ✅ Successfully generated {problems.length} validated problems!
         </div>
       )}
       
@@ -173,5 +201,6 @@ const App = () => {
   );
 };
 
+// Render
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
