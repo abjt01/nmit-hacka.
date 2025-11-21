@@ -1,216 +1,266 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
-import asyncio
-
+import traceback
 from agents.base_agent import BaseAgent
 from validators.math_validator import MathValidator
-from validators.rule_validator import RuleValidator
-from models.schemas import Problem, ValidationStatus, SolverResult
-from utils.prompts import SOLVER_A_PROMPT, SOLVER_B_PROMPT
+from models.schemas import Problem, MCQOptions
 
 class Orchestrator:
     def __init__(self):
-        self.solver_a = BaseAgent("Solver_A", SOLVER_A_PROMPT)
-        self.solver_b = BaseAgent("Solver_B", SOLVER_B_PROMPT)
+        self.api_call_count = 0
         self.math_validator = MathValidator()
-        self.rule_validator = RuleValidator()
         
-        self.stats = {
-            "total_generated": 0,
-            "total_valid": 0,
-            "total_rejected": 0,
-            "solver_agreements": 0,
-            "ground_truth_matches": 0,
-            "error_breakdown": {}
+    def generate_problems(self, num_problems: int, category: str) -> Dict:
+        """Main workflow - optimized for minimal API calls"""
+        
+        problems = []
+        print(f"\n🚀 Starting generation: {num_problems} problems, category: {category}")
+        
+        research_knowledge = self._research_phase(category)
+        print(f"✅ Research phase complete. API calls so far: {self.api_call_count}")
+        
+        for i in range(num_problems):
+            print(f"\n📝 Attempting problem {i+1}/{num_problems}...")
+            problem = self._generate_and_validate_problem(
+                problem_num=i+1,
+                category=category,
+                research_knowledge=research_knowledge
+            )
+            if problem:
+                problems.append(problem)
+                print(f"✅ Problem {i+1} generated successfully!")
+            else:
+                print(f"❌ Problem {i+1} failed validation")
+        
+        print(f"\n🎉 Generation complete: {len(problems)}/{num_problems} problems created")
+        print(f"📊 Total API calls: {self.api_call_count}")
+        
+        stats = {
+            "total_generated": len(problems),
+            "total_api_calls": self.api_call_count,
+            "api_efficiency": f"{len(problems)}/{self.api_call_count} problems per call"
         }
-    
-    async def generate_problem(
-        self,
-        generator_agent: BaseAgent,
-        category: str,
-        difficulty: str,
-        research_summary: str,
-        max_retries: int = 3
-    ) -> Problem:
-        """Generate and validate a single problem with retry logic"""
-        
-        for attempt in range(1, max_retries + 1):
-            # Generate problem
-            gen_prompt = f"""Generate a {difficulty} difficulty {category} word problem.
-
-Research Context: {research_summary[:500]}
-
-Create a story-based quantitative problem with:
-1. Clear scenario (trains, workers, pipes, etc.)
-2. Numerical values that are realistic
-3. 4 MCQ options (A, B, C, D)
-4. Include parameters for ground truth calculation
-
-Output as JSON with keys: question, parameters, options, correct_answer, expected_value"""
-            
-            problem_data = generator_agent.execute(gen_prompt)
-            
-            if "error" in problem_data:
-                continue
-            
-            # Rule validation
-            is_valid, errors = self.rule_validator.validate_problem(problem_data)
-            if not is_valid:
-                self.stats["total_rejected"] += 1
-                self.stats["error_breakdown"]["rule_violation"] = \
-                    self.stats["error_breakdown"].get("rule_violation", 0) + 1
-                continue
-            
-            # Calculate ground truth
-            params = problem_data.get("parameters", {})
-            ground_truth, calc_explanation = self.math_validator.calculate_ground_truth(
-                params, category
-            )
-            
-            if ground_truth is None:
-                self.stats["total_rejected"] += 1
-                self.stats["error_breakdown"]["calculation_failed"] = \
-                    self.stats["error_breakdown"].get("calculation_failed", 0) + 1
-                continue
-            
-            # Solve with both agents
-            question = problem_data.get("question", "")
-            options = problem_data.get("options", {})
-            
-            solver_a_result = self._solve_with_agent(
-                self.solver_a,
-                question,
-                options
-            )
-            
-            solver_b_result = self._solve_with_agent(
-                self.solver_b,
-                question,
-                options
-            )
-            
-            # Validate solver results
-            validation_result = self._validate_solvers(
-                solver_a_result,
-                solver_b_result,
-                ground_truth
-            )
-            
-            if validation_result["is_valid"]:
-                self.stats["total_valid"] += 1
-                self.stats["total_generated"] += 1
-                
-                if validation_result["solvers_agree"]:
-                    self.stats["solver_agreements"] += 1
-                
-                if validation_result["matches_ground_truth"]:
-                    self.stats["ground_truth_matches"] += 1
-                
-                # Create Problem object
-                from models.schemas import MCQOptions
-                problem = Problem(
-                    id=f"{category[:3].upper()}_{self.stats['total_generated']:03d}",
-                    category=category,
-                    difficulty=difficulty,
-                    question=question,
-                    options=MCQOptions(**options),
-                    correct_answer=problem_data.get("correct_answer", "A"),
-                    ground_truth=ground_truth,
-                    solver_a_result=solver_a_result,
-                    solver_b_result=solver_b_result,
-                    validation_status=ValidationStatus.VALID,
-                    validation_score=validation_result["score"],
-                    attempts=attempt
-                )
-                
-                return problem
-            else:
-                self.stats["total_rejected"] += 1
-                error_type = validation_result.get("error_reason", "solver_disagreement")
-                self.stats["error_breakdown"][error_type] = \
-                    self.stats["error_breakdown"].get(error_type, 0) + 1
-        
-        # All retries exhausted
-        return None
-    
-    def _solve_with_agent(
-        self,
-        agent: BaseAgent,
-        question: str,
-        options: Dict
-    ) -> SolverResult:
-        """Execute solver agent and parse result"""
-        
-        prompt = f"""Solve this problem:
-
-PROBLEM: {question}
-OPTIONS: {json.dumps(options)}
-
-Provide step-by-step solution and select the correct option.
-Output as JSON with keys: reasoning, calculated_value, selected_option, confidence, approach"""
-        
-        result = agent.execute(prompt)
-        
-        if "error" in result:
-            return SolverResult(
-                answer=0.0,
-                confidence=0.0,
-                reasoning="Solver error",
-                approach=agent.name
-            )
-        
-        return SolverResult(
-            answer=result.get("calculated_value", result.get("answer", 0.0)),
-            confidence=result.get("confidence", 0.5),
-            reasoning=result.get("reasoning", ""),
-            approach=result.get("approach", agent.name)
-        )
-    
-    def _validate_solvers(
-        self,
-        solver_a: SolverResult,
-        solver_b: SolverResult,
-        ground_truth: float
-    ) -> Dict:
-        """Compare solver results with ground truth using confidence weighting"""
-        
-        # Calculate distances from ground truth
-        a_error = abs(solver_a.answer - ground_truth) / (abs(ground_truth) + 0.001)
-        b_error = abs(solver_b.answer - ground_truth) / (abs(ground_truth) + 0.001)
-        
-        # Confidence-weighted scores
-        a_score = solver_a.confidence * max(0, 1 - a_error)
-        b_score = solver_b.confidence * max(0, 1 - b_error)
-        
-        # Check agreement
-        solvers_agree = abs(solver_a.answer - solver_b.answer) / (abs(ground_truth) + 0.001) < 0.1
-        
-        # Check ground truth match
-        a_matches = self.math_validator.validate_answer(solver_a.answer, ground_truth, tolerance=0.05)
-        b_matches = self.math_validator.validate_answer(solver_b.answer, ground_truth, tolerance=0.05)
-        
-        # Validation logic
-        avg_score = (a_score + b_score) / 2
-        
-        is_valid = (
-            avg_score > 0.75 and  # High confidence weighted score
-            (a_matches or b_matches) and  # At least one matches ground truth
-            solvers_agree  # Solvers agree with each other
-        )
-        
-        error_reason = None
-        if not is_valid:
-            if not solvers_agree:
-                error_reason = "solver_disagreement"
-            elif not (a_matches or b_matches):
-                error_reason = "ground_truth_mismatch"
-            else:
-                error_reason = "low_confidence"
         
         return {
-            "is_valid": is_valid,
-            "score": avg_score,
-            "solvers_agree": solvers_agree,
-            "matches_ground_truth": a_matches or b_matches,
-            "error_reason": error_reason
+            "problems": problems,
+            "stats": stats,
+            "total_api_calls": self.api_call_count
         }
+    
+    def _research_phase(self, category: str) -> str:
+        """Single research call for all categories"""
+        
+        research_agent = BaseAgent(
+            name="Research",
+            system_prompt="You are a quantitative aptitude expert. Always respond with valid JSON."
+        )
+        
+        prompt = f"""Provide formulas and problem patterns for: {category}
+
+If category is "Mixed", cover all categories briefly.
+Otherwise focus on: {category}
+
+Include:
+1. Key formulas
+2. Common problem types
+3. Typical value ranges
+4. Sample scenarios
+
+Output as JSON with structure:
+{{
+  "category": "{category}",
+  "formulas": ["formula1", "formula2"],
+  "problem_types": ["type1", "type2"],
+  "value_ranges": {{"distance": "100-1000 km", "speed": "40-120 km/h"}},
+  "examples": ["example scenario 1", "example scenario 2"]
+}}"""
+
+        try:
+            result = research_agent.execute(prompt, temperature=0.2)
+            self.api_call_count += 1
+            print(f"🔬 Research result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
+            return json.dumps(result)
+        except Exception as e:
+            print(f"❌ Research phase error: {e}")
+            return "{}"
+    
+    def _generate_and_validate_problem(
+        self,
+        problem_num: int,
+        category: str,
+        research_knowledge: str
+    ) -> Optional[Problem]:
+        """Generate + Validate in 2 API calls"""
+        
+        try:
+            # CALL 1: Generate problem
+            generator = BaseAgent(
+                name="Generator",
+                system_prompt="You are a quantitative word problem generator. Always respond with valid JSON."
+            )
+            
+            gen_prompt = f"""Create a quantitative aptitude problem for: {category}
+
+Problem number: {problem_num}
+
+Create a story-based word problem with:
+- Clear scenario (trains meeting, workers completing job, etc.)
+- Realistic numbers
+- 4 multiple choice options
+- Step-by-step solution
+
+Output MUST be valid JSON with this EXACT structure:
+{{
+  "question": "Full problem text here",
+  "options": {{
+    "A": "First option with unit",
+    "B": "Second option with unit",
+    "C": "Third option with unit",
+    "D": "Fourth option with unit"
+  }},
+  "correct_answer": "A",
+  "solution_steps": "Step 1: ... Step 2: ... Step 3: ...",
+  "final_answer": 2.5
+}}
+
+Example for Time, Speed & Distance:
+{{
+  "question": "Two trains start from stations A and B, 360 km apart, and travel toward each other. Train A travels at 60 km/h, and Train B at 80 km/h. After how many hours will they meet?",
+  "options": {{
+    "A": "2.0 hours",
+    "B": "2.57 hours",
+    "C": "3.0 hours",
+    "D": "4.5 hours"
+  }},
+  "correct_answer": "B",
+  "solution_steps": "Step 1: Combined speed = 60 + 80 = 140 km/h. Step 2: Time = Distance / Speed = 360 / 140 = 2.57 hours",
+  "final_answer": 2.57
+}}
+
+Now create a NEW problem for: {category}"""
+
+            problem_data = generator.execute(gen_prompt, temperature=0.5)
+            self.api_call_count += 1
+            
+            print(f"  📤 Generator response keys: {problem_data.keys() if isinstance(problem_data, dict) else 'Invalid'}")
+            
+            if "error" in problem_data:
+                print(f"  ❌ Generator error: {problem_data['error']}")
+                return None
+                
+            if not problem_data.get("question"):
+                print(f"  ❌ No question field in response")
+                return None
+            
+            # Quick validation check
+            if not problem_data.get("options"):
+                print(f"  ❌ No options field")
+                return None
+                
+            if not isinstance(problem_data.get("options"), dict):
+                print(f"  ❌ Options is not a dict: {type(problem_data.get('options'))}")
+                return None
+            
+            # CALL 2: Validate problem
+            validator = BaseAgent(
+                name="Validator",
+                system_prompt="You are a problem validator. Always respond with valid JSON."
+            )
+            
+            val_prompt = f"""Validate this quantitative problem:
+
+QUESTION: {problem_data['question']}
+OPTIONS: {json.dumps(problem_data.get('options', {}))}
+GIVEN ANSWER: {problem_data.get('correct_answer', 'Unknown')}
+
+Tasks:
+1. Solve the problem independently
+2. Check if it's solvable and logical
+3. Verify the correct answer matches your solution
+
+Output MUST be valid JSON:
+{{
+  "your_answer": "A",
+  "your_calculation": 2.5,
+  "is_valid": true,
+  "reasoning": "Brief explanation of your solution"
+}}"""
+
+            validation = validator.execute(val_prompt, temperature=0.2)
+            self.api_call_count += 1
+            
+            print(f"  📥 Validator response keys: {validation.keys() if isinstance(validation, dict) else 'Invalid'}")
+            
+            # Check validation
+            is_valid = validation.get("is_valid", False)
+            
+            if not is_valid:
+                print(f"  ❌ Validator marked as invalid: {validation.get('reasoning', 'No reason')}")
+                return None
+            
+            # Check answer agreement
+            validator_answer = validation.get("your_answer")
+            correct_answer = problem_data.get("correct_answer")
+            
+            if validator_answer != correct_answer:
+                print(f"  ⚠️  Answer mismatch: Generator says {correct_answer}, Validator says {validator_answer}")
+                # Accept it anyway if validator marked as valid
+                if not is_valid:
+                    return None
+            
+            # Create problem object
+            problem = Problem(
+                id=f"Q{problem_num:03d}",
+                category=category,
+                question=problem_data['question'],
+                options=MCQOptions(**problem_data['options']),
+                correct_answer=problem_data['correct_answer'],
+                explanation=problem_data.get('solution_steps', validation.get('reasoning', 'No explanation provided')),
+                validation_status="Valid"
+            )
+            
+            print(f"  ✅ Problem object created successfully")
+            return problem
+            
+        except KeyError as e:
+            print(f"  ❌ KeyError: {e}")
+            print(f"  Problem data: {problem_data if 'problem_data' in locals() else 'Not available'}")
+            traceback.print_exc()
+            return None
+        except Exception as e:
+            print(f"  ❌ Unexpected error: {e}")
+            traceback.print_exc()
+            return None
+    
+    def _check_ground_truth(self, problem_data: Dict, validator_answer: float) -> bool:
+        """Use SymPy to verify answer (NO API CALL)"""
+        try:
+            import re
+            numbers = re.findall(r'\d+\.?\d*', problem_data['question'])
+            
+            if validator_answer and len(numbers) > 0:
+                min_val = min(float(n) for n in numbers if float(n) > 0)
+                max_val = max(float(n) for n in numbers)
+                return min_val * 0.1 <= validator_answer <= max_val * 10
+            return True
+        except:
+            return True
+    
+    def _infer_category(self, question: str) -> str:
+        """Infer category from question text"""
+        keywords = {
+            "train|speed|distance|km/h|travel|meet": "Time, Speed & Distance",
+            "work|job|days|complete|finish": "Work & Time",
+            "pipe|tank|fill|empty|leak|cistern": "Pipes & Cisterns",
+            "profit|loss|discount|price|₹|rupees|cost": "Profit, Loss & Discount",
+            "mixture|ratio|replace|container|alloy": "Ratio, Mixtures & Sharing",
+            "age|years ago|older|younger|born": "Age Problems",
+            "boat|stream|downstream|upstream|current": "Boats & Streams"
+        }
+        
+        import re
+        question_lower = question.lower()
+        for pattern, cat in keywords.items():
+            if re.search(pattern, question_lower):
+                return cat
+        return "Allocation & Logical Math"

@@ -1,21 +1,16 @@
 from groq import Groq
 import json
-from typing import Dict, Optional
+from typing import Dict
 import os
 
 class BaseAgent:
-    def __init__(self, name: str, system_prompt: str, model: str = "llama-3.1-70b-versatile"):
+    def __init__(self, name: str, system_prompt: str, model: str = "llama-3.3-70b-versatile"):
         self.name = name
         self.system_prompt = system_prompt
         self.model = model
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     
-    def execute(
-        self,
-        user_prompt: str,
-        temperature: float = 0.3,
-        json_mode: bool = True
-    ) -> Dict:
+    def execute(self, user_prompt: str, temperature: float = 0.3, json_mode: bool = True) -> Dict:
         """Execute agent task and return structured response"""
         try:
             messages = [

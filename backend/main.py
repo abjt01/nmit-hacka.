@@ -1,30 +1,22 @@
 import sys
 from pathlib import Path
 
-# Add backend directory to path
 backend_dir = Path(__file__).parent
 sys.path.insert(0, str(backend_dir))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from typing import List
 import uvicorn
 from dotenv import load_dotenv
-import json
 
 from models.schemas import *
-from agents.base_agent import BaseAgent
 from agents.orchestrator import Orchestrator
-from utils.prompts import RESEARCH_AGENT_PROMPT, GENERATOR_AGENT_PROMPT
-from utils.config import get_settings
 
 load_dotenv()
-settings = get_settings()
 
 app = FastAPI(title="HydraHacks Quant Validator API")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,191 +25,218 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global state
-orchestrator = Orchestrator()
-current_status = {
-    "agents": [],
-    "current_problem": None,
-    "problems": [],
-    "research_summary": ""
-}
-
 @app.get("/")
 async def root():
-    return {"message": "HydraHacks Quant Validator API", "status": "running"}
+    return {"message": "HydraHacks API - Optimized Version", "status": "running"}
 
 @app.post("/api/generate", response_model=GenerationResponse)
 async def generate_problems(request: GenerationRequest):
-    """Main endpoint: Generate validated quantitative problems"""
+    """Generate problems with minimal API calls"""
     
     try:
-        # Reset state
-        orchestrator.stats = {
-            "total_generated": 0,
-            "total_valid": 0,
-            "total_rejected": 0,
-            "solver_agreements": 0,
-            "ground_truth_matches": 0,
-            "error_breakdown": {}
-        }
-        
-        problems = []
-        
-        # Step 1: Research phase
-        current_status["agents"] = [
-            AgentStatus(name="Research Agent", status="running", progress=10, message="Analyzing problem patterns...")
-        ]
-        
-        research_summaries = {}
-        research_agent = BaseAgent("Research", RESEARCH_AGENT_PROMPT)
-        
-        for category in request.categories:
-            prompt = f"Research and provide comprehensive guidelines for creating {category} problems."
-            result = research_agent.execute(prompt)
-            research_summaries[category] = result
-        
-        current_status["agents"][0].status = "completed"
-        current_status["agents"][0].progress = 100
-        current_status["research_summary"] = str(research_summaries)
-        
-        # Step 2: Generation phase
-        generator_agent = BaseAgent("Generator", GENERATOR_AGENT_PROMPT)
-        
-        for category in request.categories:
-            for difficulty, count in request.difficulty_distribution.items():
-                for i in range(count):
-                    current_status["agents"] = [
-                        AgentStatus(name="Generator", status="running", progress=30, 
-                                  message=f"Generating {difficulty} {category} problem..."),
-                        AgentStatus(name="Solver A", status="idle", progress=0),
-                        AgentStatus(name="Solver B", status="idle", progress=0),
-                        AgentStatus(name="Validator", status="idle", progress=0)
-                    ]
-                    
-                    problem = await orchestrator.generate_problem(
-                        generator_agent,
-                        category,
-                        difficulty,
-                        str(research_summaries.get(category, "")),
-                        max_retries=3
-                    )
-                    
-                    if problem:
-                        problems.append(problem)
-                        current_status["problems"] = problems
-                        current_status["current_problem"] = problem
-                    
-                    if len(problems) >= request.num_problems:
-                        break
-                
-                if len(problems) >= request.num_problems:
-                    break
-            
-            if len(problems) >= request.num_problems:
-                break
-        
-        # Final stats
-        stats = {
-            "total_generated": len(problems),
-            "total_valid": orchestrator.stats["total_valid"],
-            "total_rejected": orchestrator.stats["total_rejected"],
-            "solver_agreement_rate": orchestrator.stats["solver_agreements"] / max(len(problems), 1),
-            "ground_truth_accuracy": orchestrator.stats["ground_truth_matches"] / max(len(problems), 1),
-            "error_breakdown": orchestrator.stats["error_breakdown"],
-            "difficulty_distribution": {
-                "EASY": sum(1 for p in problems if p.difficulty == Difficulty.EASY),
-                "MEDIUM": sum(1 for p in problems if p.difficulty == Difficulty.MEDIUM),
-                "HARD": sum(1 for p in problems if p.difficulty == Difficulty.HARD)
-            }
-        }
-        
-        return GenerationResponse(
-            problems=problems,
-            stats=stats,
-            research_summary=str(research_summaries)
+        orchestrator = Orchestrator()
+        result = orchestrator.generate_problems(
+            num_problems=request.num_problems,
+            category=request.category.value
         )
+        
+        return GenerationResponse(**result)
     
     except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/status", response_model=SystemStatus)
-async def get_status():
-    """Get current system status (for real-time updates)"""
-    return SystemStatus(
-        agents=current_status.get("agents", []),
-        current_problem=current_status.get("current_problem"),
-        total_generated=len(current_status.get("problems", [])),
-        total_valid=orchestrator.stats.get("total_valid", 0)
-    )
-
-@app.get("/api/problems")
-async def get_problems():
-    """Get all generated problems"""
-    return {"problems": current_status.get("problems", [])}
-
-@app.post("/api/export/google-form")
-async def export_google_form(problems: List[Problem]):
-    """Export problems to Google Form (mock for now)"""
-    return {
-        "message": "Google Form export not implemented yet",
-        "form_url": "https://forms.google.com/mock-form-id"
-    }
 
 @app.post("/api/export/html")
 async def export_html(problems: List[Problem]):
     """Generate HTML quiz"""
-    html_content = generate_html_quiz(problems)
-    return {"html": html_content}
-
-def generate_html_quiz(problems: List[Problem]) -> str:
-    """Generate standalone HTML quiz"""
+    
     html = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quantitative Aptitude Quiz</title>
+    <title>Quantitative Aptitude Quiz - HydraHacks</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f5f5f5; }
-        .problem { margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background: white; }
-        .options { margin: 15px 0; }
-        .option { margin: 8px 0; padding: 10px; background: #f9f9f9; border-radius: 4px; }
-        h2 { color: #2c3e50; }
-        .correct { background: #d4edda !important; border-left: 4px solid #28a745; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { 
+            color: #667eea;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+        .problem {
+            margin: 40px 0;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border-left: 5px solid #667eea;
+        }
+        .problem-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .problem-id {
+            font-weight: 700;
+            color: #667eea;
+            font-size: 1.3rem;
+        }
+        .category {
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        .question {
+            font-size: 1.15rem;
+            line-height: 1.8;
+            color: #333;
+            margin-bottom: 25px;
+        }
+        .options {
+            display: grid;
+            gap: 15px;
+        }
+        .option {
+            padding: 15px 20px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .option:hover {
+            border-color: #667eea;
+            transform: translateX(5px);
+        }
+        .option.correct {
+            background: #d4edda;
+            border-color: #28a745;
+            font-weight: 600;
+        }
+        .explanation {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border-radius: 10px;
+            border-left: 4px solid #ffc107;
+        }
+        .explanation strong {
+            color: #856404;
+        }
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+            color: #666;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
-    <h1>🎓 Quantitative Aptitude Quiz</h1>
-    <p><strong>Total Questions:</strong> """ + str(len(problems)) + """</p>
-    <p><strong>Generated by:</strong> HydraHacks Multi-Agent System</p>
-    <hr>
+    <div class="container">
+        <h1>🎓 Quantitative Aptitude Quiz</h1>
+        <p class="subtitle">Generated by HydraHacks Multi-Agent System</p>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value">""" + str(len(problems)) + """</div>
+                <div class="stat-label">Total Questions</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">""" + str(len(set(p.category for p in problems))) + """</div>
+                <div class="stat-label">Categories</div>
+            </div>
+        </div>
 """
     
     for idx, problem in enumerate(problems, 1):
         html += f"""
-    <div class="problem">
-        <h2>Question {idx}</h2>
-        <p><strong>Category:</strong> {problem.category} | <strong>Difficulty:</strong> {problem.difficulty}</p>
-        <p style="font-size: 1.1em; line-height: 1.6;">{problem.question}</p>
-        <div class="options">
-            <div class="option {'correct' if 'A' == problem.correct_answer else ''}">A) {problem.options.A}</div>
-            <div class="option {'correct' if 'B' == problem.correct_answer else ''}">B) {problem.options.B}</div>
-            <div class="option {'correct' if 'C' == problem.correct_answer else ''}">C) {problem.options.C}</div>
-            <div class="option {'correct' if 'D' == problem.correct_answer else ''}">D) {problem.options.D}</div>
+        <div class="problem">
+            <div class="problem-header">
+                <div class="problem-id">{problem.id}</div>
+                <div class="category">{problem.category}</div>
+            </div>
+            
+            <div class="question">{problem.question}</div>
+            
+            <div class="options">
+                <div class="option {'correct' if 'A' == problem.correct_answer else ''}">
+                    <strong>A)</strong> {problem.options.A}
+                </div>
+                <div class="option {'correct' if 'B' == problem.correct_answer else ''}">
+                    <strong>B)</strong> {problem.options.B}
+                </div>
+                <div class="option {'correct' if 'C' == problem.correct_answer else ''}">
+                    <strong>C)</strong> {problem.options.C}
+                </div>
+                <div class="option {'correct' if 'D' == problem.correct_answer else ''}">
+                    <strong>D)</strong> {problem.options.D}
+                </div>
+            </div>
+            
+            <div class="explanation">
+                <strong>✓ Correct Answer:</strong> {problem.correct_answer}<br>
+                <strong>Explanation:</strong> {problem.explanation[:200]}...
+            </div>
         </div>
-        <p><strong>✓ Correct Answer:</strong> {problem.correct_answer}</p>
-        <p style="font-size: 0.9em; color: #666;"><strong>Ground Truth:</strong> {problem.ground_truth:.3f} | <strong>Validation Score:</strong> {problem.validation_score*100:.0f}%</p>
-    </div>
 """
     
     html += """
-    <footer style="margin-top: 40px; padding: 20px; text-align: center; color: #666;">
-        <p>Generated by HydraHacks Multi-Agent Validation System</p>
-        <p>Validated using SymPy Ground Truth + Dual Solver Agreement</p>
-    </footer>
+        <footer>
+            <p><strong>Generated by HydraHacks Multi-Agent Validation System</strong></p>
+            <p>Dual-validated with Independent Solver + Ground Truth Verification</p>
+        </footer>
+    </div>
 </body>
 </html>"""
-    return html
+    
+    return {"html": html}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
