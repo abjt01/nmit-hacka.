@@ -32,15 +32,12 @@ const StatsPanel = ({ stats }) => {
           <div className="stat-label">Solver Agreement</div>
         </div>
         
-        <div className="stat-card">
-          <div className="stat-value">{stats.ground_truth_matches || 0}</div>
-          <div className="stat-label">SymPy Verified</div>
-        </div>
+        {/* REMOVED: SymPy Verified stat */}
       </div>
       
       {stats.validation_failures && Object.keys(stats.validation_failures).length > 0 && (
         <div className="chart-container" style={{ marginTop: 'var(--space-lg)' }}>
-          <h3 style={{ marginBottom: 'var(--space-md)' }}>🔍 Validation Analysis</h3>
+          <h3 style={{ marginBottom: 'var(--space-md)' }}>⚠️ Validation Issues</h3>
           <div style={{ display: 'grid', gap: 'var(--space-sm)' }}>
             {Object.entries(stats.validation_failures).map(([error, count]) => (
               <div key={error} style={{ 

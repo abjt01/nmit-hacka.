@@ -25,44 +25,34 @@ const App = () => {
     setError(null);
     
     try {
-      console.log('🚀 Sending request to backend...');
+      console.log('🚀 Sending request...');
       
       const response = await fetch('http://localhost:8000/api/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           num_problems: parseInt(numProblems),
           category: category
         })
       });
       
-      console.log('📡 Response status:', response.status);
-      
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server error: ${errorText}`);
+        throw new Error(`Server error: ${response.status}`);
       }
       
       const result = await response.json();
-      console.log('✅ Result received:', result);
-      console.log('📊 Problems count:', result.problems?.length);
+      console.log('✅ Result:', result);
       
-      // FIXED: Ensure problems array is set correctly
       if (result.problems && Array.isArray(result.problems)) {
         setProblems(result.problems);
         setStats(result.stats);
-        console.log('✓ Problems state updated:', result.problems.length, 'problems');
       } else {
-        console.error('❌ Invalid response format:', result);
-        setError('Invalid response format from server');
+        setError('Invalid response format');
       }
       
     } catch (error) {
       console.error('❌ Error:', error);
       setError(error.message);
-      alert(`Error generating problems:\n\n${error.message}\n\nCheck:\n1. Backend running on port 8000\n2. GROQ_API_KEY in .env\n3. Browser console (F12) for details`);
     } finally {
       setLoading(false);
     }
@@ -77,9 +67,7 @@ const App = () => {
     try {
       const response = await fetch('http://localhost:8000/api/export/html', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(problems)
       });
       
@@ -92,9 +80,8 @@ const App = () => {
       a.click();
       URL.revokeObjectURL(url);
       
-      console.log('✅ Quiz exported successfully');
+      console.log('✅ Quiz exported');
     } catch (error) {
-      console.error('❌ Export error:', error);
       alert('Error exporting: ' + error.message);
     }
   };
@@ -104,9 +91,14 @@ const App = () => {
       <Header />
       
       <div className="control-panel">
-        <h2 style={{ marginBottom: 'var(--space-lg)' }}>⚙️ Generation Settings</h2>
+        <h2 style={{ marginBottom: 'var(--space-md)' }}>⚙️ Generation Settings</h2>
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 'var(--space-md)' }}>
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+          gap: 'var(--space-md)',
+          marginBottom: 'var(--space-lg)'
+        }}>
           <div className="form-group">
             <label>Number of Problems</label>
             <input 
@@ -115,7 +107,6 @@ const App = () => {
               max="20" 
               value={numProblems}
               onChange={(e) => setNumProblems(e.target.value)}
-              placeholder="1-20"
             />
           </div>
           
@@ -132,18 +123,18 @@ const App = () => {
           </div>
         </div>
         
-        <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: 'var(--space-lg)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
           <button 
             className="btn btn-primary" 
             onClick={handleGenerate}
             disabled={loading}
           >
-            {loading ? '⏳ Generating...' : '🚀 Generate Problems'}
+            {loading ? '⏳ Generating & Validating...' : '🚀 Generate Problems'}
           </button>
           
           {problems.length > 0 && (
             <button className="btn btn-secondary" onClick={handleExport}>
-              📥 Export HTML Quiz
+              📥 Export Quiz (HTML)
             </button>
           )}
         </div>
@@ -165,42 +156,36 @@ const App = () => {
         <div className="loading">
           <div className="spinner"></div>
           <p style={{ fontSize: '1.1rem', fontWeight: '600' }}>
-            Generating {numProblems} problems for: {category}
+            Generating {numProblems} validated problems...
           </p>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '10px' }}>
-            Multi-agent validation in progress...
-          </p>
-          <div style={{ marginTop: 'var(--space-md)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          <div style={{ 
+            marginTop: 'var(--space-md)', 
+            fontSize: '0.9rem', 
+            color: 'var(--text-secondary)',
+            lineHeight: '1.8'
+          }}>
             <div>✓ Research Agent analyzing patterns</div>
-            <div>✓ Generator creating problems</div>
+            <div>✓ Generator creating unique problems</div>
             <div>✓ Solver A validating (algebraic)</div>
             <div>✓ Solver B validating (logical)</div>
-            <div>✓ SymPy verifying ground truth</div>
+            <div>✓ Checking for hallucinations</div>
           </div>
         </div>
       )}
       
-      {stats && <StatsPanel stats={stats} />}
-      
       {problems.length > 0 && (
-        <div style={{
-          marginBottom: 'var(--space-lg)',
-          padding: 'var(--space-md)',
-          background: 'var(--success)',
-          color: 'white',
-          borderRadius: 'var(--radius-md)',
-          textAlign: 'center',
-          fontWeight: '600'
-        }}>
-          ✅ Successfully generated {problems.length} validated problems!
-        </div>
+        <>
+          <HallucinationMonitor problems={problems} />
+          <ConfidenceHeatmap problems={problems} />
+        </>
       )}
+      
+      {stats && <StatsPanel stats={stats} />}
       
       <ProblemViewer problems={problems} />
     </div>
   );
 };
 
-// Render
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
